@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "strictNullChecks": true,
+        "outDir": "./built"
+    },
+    "include": [
+        "src/**/*",
+        "test/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "built"
+    ]
+}
