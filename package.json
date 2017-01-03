@@ -7,6 +7,7 @@
     "build": "tsc",
     "clean": "rm -r built",
     "test": "mocha --require ts-node/register --require ./test/setup.ts test/**/*.test.ts",
+    "testEach": "mocha --require ts-node/register --require ./test/setup.ts",
     "debug": "mocha --inspect --debug-brk --require ts-node/register --require ./test/setup.ts test/**/*.test.ts"
   },
   "author": "",
@@ -16,6 +17,7 @@
     "@types/chai-as-promised": "0.0.29",
     "@types/es6-promise": "0.0.32",
     "@types/falcor": "^0.1.16",
+    "@types/knex": "0.0.38",
     "@types/lodash": "^4.14.44",
     "@types/mocha": "^2.2.34",
     "@types/rx": "^2.5.34",
@@ -28,6 +30,8 @@
   },
   "dependencies": {
     "falcor": "^0.1.17",
+    "falcor-path-syntax": "^0.2.4",
+    "knex": "^0.12.6",
     "lodash": "^4.17.3",
     "rx": "^4.1.0"
   }

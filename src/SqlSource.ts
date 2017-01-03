@@ -1,14 +1,10 @@
 import { Observable } from 'rx';
 import * as falcor from 'falcor';
+import * as knex from 'knex';
 import SqlcorError from './SqlcorError';
-import { Graph, Ref } from './Model';
-import { range, flatten, setWith } from 'lodash';
-
-function isRange(keySet: falcor.KeySet): keySet is falcor.Range {
-    const range = <falcor.Range>keySet;
-    return (typeof range === 'object' &&
-            (range.to !== undefined || range.length !== undefined));
-}
+import { Query, Graph, Ref } from './Model';
+import { flatMap, range, flatten, setWith } from 'lodash';
+import { isRange } from './util';
 
 function isDeeper(graph: any): graph is Graph | Array<Graph> {
     return (typeof graph !== 'number' && 
@@ -18,9 +14,7 @@ function isDeeper(graph: any): graph is Graph | Array<Graph> {
 }
 
 export default class SqlSource implements falcor.DataSource {
-    constructor(private graph: Graph) {
-        this.graph = graph;
-    }
+    constructor(private graph: Graph, private knex: knex) {}
 
     private makeKeys(keySet: falcor.KeySet): Array<falcor.Key> {
         if(keySet instanceof Array) {
@@ -32,6 +26,60 @@ export default class SqlSource implements falcor.DataSource {
         } else {
             return [keySet];
         }
+    }
+
+    private resolveQuery(pathSet: falcor.PathSet,
+                         curPathSet: falcor.PathSet,
+                         index: number,
+                         query: Query): Observable<falcor.PathValue> {
+
+        if((index + query.filters.length) < pathSet.length) {
+            throw new SqlcorError(`Path ${pathSet} should have keys for all filter values and a field`);
+        }
+
+        // fields that'll be returned from the final results
+        const fields = this.makeKeys(pathSet[index + query.filters.length]).map((fieldName) => {
+            const field = query.model[fieldName.toString()];
+            if(!field) {
+                throw new Error(`Field ${fieldName} not found in model`);
+            }
+            return field;
+        });
+
+        // fields to filter by
+        const filterFields = query.filters.map((fieldName) => query.model[fieldName]);
+
+        // build the query
+        let knexQuery = query.query(this.knex);
+
+        // add where clause for all filter fields
+        filterFields.forEach((filterField, i) => {
+            const filterValues = this.makeKeys(pathSet[index + i]).map((value) => {
+                return filterField.serialize(value);
+            });
+            if(filterValues.length === 1) {
+                knexQuery = knexQuery.where(filterField.columnName, filterValues[0]);
+            } else {
+                knexQuery = knexQuery.whereIn(filterField.columnName, filterValues);
+            }
+        });
+
+        return Observable.fromPromise(knexQuery.then((rows) => {
+            // map rows to path values
+            return flatMap(rows, (row) => {
+                return fields.map((field) => {
+                    const value = row[field.columnName];
+                    let path = curPathSet.concat(
+                        filterFields.map((filterField) => {
+                            return filterField.deserialize(row[filterField.columnName]);
+                        })
+                    );
+                    return { path, value };
+                })
+            });
+        })).flatMap((pathValues) => {
+            return Observable.fromArray(pathValues);
+        });
     }
 
     private resolvePathSet(pathSet: falcor.PathSet, 
@@ -47,6 +95,8 @@ export default class SqlSource implements falcor.DataSource {
             const value = graph[key.toString()];
             if(value === undefined) {
                 throw new SqlcorError(`Graph undefined at ${nextPathSet}`);
+            } else if(value instanceof Query) {
+                return this.resolveQuery(pathSet, curPathSet, index + 1, value);
             } else if(value instanceof Ref) {
                 const newPath = value.path.concat(pathSet.slice(index + 1));
                 return Observable.merge([
